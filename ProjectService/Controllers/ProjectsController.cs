@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -5,27 +6,30 @@ namespace ProjectService.Controllers;
 
 [ApiController]
 [Route("[controller]")]
-public class ProjectController(
-    ILogger<ProjectController> logger,
+[Authorize("RequireUserId")] // checking whether the user id is present in the request header
+public class ProjectsController(
+    ILogger<ProjectsController> logger,
     IProjectService projectService, 
     ProjectDbContext context) : ControllerBase
 {
 
-    private readonly ILogger<ProjectController> _logger = logger;
+    private readonly ILogger<ProjectsController> _logger = logger;
     private readonly IProjectService _projectService = projectService;
     private readonly ProjectDbContext _context = context;
     
-     [HttpPost("create")]
+    [HttpPost("create")]
     public async Task<IActionResult> Create([FromBody] ProjectCreateModel model)
     {
         string image = await _projectService.CreateImage(model.Width, model.Height);
+        
+        string userId = Request.Headers["X-UserId"].ToString();
 
         var project = new Project
         {
             Name = model.Name,
             Width = model.Width,
             Height = model.Height,
-            UserId = model.UserId,
+            UserId = userId,
             CreatedDate = DateTime.Now,
             LastModifiedDate = DateTime.Now,
             Image = image,
@@ -41,12 +45,14 @@ public class ProjectController(
     [HttpPost("upload")]
     public async Task<IActionResult> Upload([FromBody] ProjectUploadModel model)
     {
+        string userId = Request.Headers["X-UserId"].ToString();
+        
         var project = new Project
         {
             Name = model.Name,
             Width = model.Width,
             Height = model.Height,
-            UserId = model.UserId,
+            UserId = userId,
             CreatedDate = DateTime.Now,
             LastModifiedDate = DateTime.Now,
             Image = model.Image,
@@ -64,10 +70,8 @@ public class ProjectController(
     {
         try
         {
-            var userId = Request.Headers["UserId"].ToString();
-
             var projects = await _context.Projects
-                                         .Where(p => p.UserId == userId)
+                                         .Where(p => p.UserId == Request.Headers["X-UserId"].ToString())
                                          .OrderByDescending(p => p.LastModifiedDate)
                                          .Skip((pageNumber - 1) * pageSize)
                                          .Take(pageSize)
@@ -100,7 +104,8 @@ public class ProjectController(
     public async Task<IActionResult> GetProject(string id)
     {
         var project = await _context.Projects.AsNoTracking()
-                                    .FirstOrDefaultAsync(p => p.Id == id);
+                                    .FirstOrDefaultAsync(p => p.Id == id && 
+                                                              p.UserId == Request.Headers["X-UserId"].ToString());
 
         if (project == null) return NotFound("Project not found.");
 
@@ -111,8 +116,9 @@ public class ProjectController(
     public async Task<IActionResult> DeleteProject(string id)
     {
         var project = await _context.Projects
-                                    .FirstOrDefaultAsync(p => p.Id == id);
-
+                                    .FirstOrDefaultAsync(p => p.Id == id && 
+                                                              p.UserId == Request.Headers["X-UserId"].ToString());
+        
         if (project == null) return NotFound("Project not found.");
 
         _context.Projects.Remove(project);
@@ -124,7 +130,8 @@ public class ProjectController(
     [HttpPut("{imageId}")]
     public async Task<IActionResult> SaveProject(string imageId, [FromBody] SaveProjectModel model) {
         var project = await _context.Projects
-                                    .FirstOrDefaultAsync(p => p.Id == imageId);
+                                    .FirstOrDefaultAsync(p => p.Id == imageId && 
+                                                              p.UserId == Request.Headers["X-UserId"].ToString());
 
         if (project == null) return NotFound("Project not found.");
 
@@ -145,7 +152,6 @@ public class ProjectCreateModel
     public required string Name { get; set; }
     public int Width { get; set; }
     public int Height { get; set; }
-    public required string UserId { get; set; }
 }
 
 public class ProjectUploadModel
@@ -153,7 +159,6 @@ public class ProjectUploadModel
     public required string Name { get; set; }
     public required int Width { get; set; }
     public required int Height { get; set; }
-    public required string UserId { get; set; }
     public required string Image { get; set; }
 }
 
